@@ -28,7 +28,7 @@ struct IslandLiveActivity: Widget {
         } dynamicIsland: { context in
             let state = context.state
             let stale = context.isStale
-            let sprite = SpriteState(name: state.state)
+            let sprite = stale ? SpriteState.offline : SpriteState(name: state.state)   // 掉线了换成 x x 眼睛
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.center) {
                     SpriteView(state: sprite, wide: true, scale: IslandLiveActivity.wideScale, gray: stale)
@@ -59,7 +59,7 @@ struct LockScreenBanner: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            SpriteView(state: SpriteState(name: state.state), wide: true, scale: IslandLiveActivity.wideScale, gray: stale)
+            SpriteView(state: stale ? SpriteState.offline : SpriteState(name: state.state), wide: true, scale: IslandLiveActivity.wideScale, gray: stale)
             Text(stale ? IslandWords.stale : state.line)
                 .font(.subheadline).lineLimit(1)
                 .foregroundStyle(stale ? Color.white.opacity(0.6) : Color.white)

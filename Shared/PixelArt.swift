@@ -13,6 +13,7 @@ enum SpriteState: String, CaseIterable, Codable {
     case happy = "happy"
     case love = "love"
     case miss = "miss"
+    case offline = "offline"
     case shy = "shy"
     case sleepy = "sleepy"
     case typing = "typing"
@@ -27,6 +28,7 @@ enum SpriteState: String, CaseIterable, Codable {
         case .happy: return wide ? PixelGrids.happyWide : PixelGrids.happyCompact
         case .love: return wide ? PixelGrids.loveWide : PixelGrids.loveCompact
         case .miss: return wide ? PixelGrids.missWide : PixelGrids.missCompact
+        case .offline: return wide ? PixelGrids.offlineWide : PixelGrids.offlineCompact
         case .shy: return wide ? PixelGrids.shyWide : PixelGrids.shyCompact
         case .sleepy: return wide ? PixelGrids.sleepyWide : PixelGrids.sleepyCompact
         case .typing: return wide ? PixelGrids.typingWide : PixelGrids.typingCompact
@@ -37,6 +39,7 @@ enum SpriteState: String, CaseIterable, Codable {
 
 enum PixelGrids {
     static let palette: [Character: UInt32] = [
+        "h": 0xFFE6EE,
         "m": 0x8F8AA3,
         "c": 0xEDEAF3,
         "o": 0xD97757,
@@ -149,9 +152,9 @@ enum PixelGrids {
         "...........................k..",
         "...oooooooooooooooooooooooo...",
         "...oooooooooooooooooooooooo...",
-        "...ooororooooooooooororoooo...",
-        "...ooorrrooooooooooorrroooo...",
-        "...oooorooooooooooooorooooo...",
+        "...ooohohooooooooooohohoooo...",
+        "...ooohhhooooooooooohhhoooo...",
+        "...oooohooooooooooooohooooo...",
         "...oooooooooooooooooooooooo...",
         ".oooooooooooooooooooooooooooo.",
         ".oooooooooooooooooooooooooooo.",
@@ -172,9 +175,9 @@ enum PixelGrids {
         "................................................................kk.kk.....................",
         ".................................oooooooooooooooooooooooo......kkkkkkk....................",
         ".................................oooooooooooooooooooooooo......kkkkkkk....................",
-        ".................................ooororooooooooooororoooo.......kkkkk.....................",
-        "....................kk.kk........ooorrrooooooooooorrroooo........kkk......................",
-        "....................kkkkk........oooorooooooooooooorooooo.........k.......................",
+        ".................................ooohohooooooooooohohoooo.......kkkkk.....................",
+        "....................kk.kk........ooohhhooooooooooohhhoooo........kkk......................",
+        "....................kkkkk........oooohooooooooooooohooooo.........k.......................",
         ".....................kkk.........oooooooooooooooooooooooo.................................",
         "......................k........oooooooooooooooooooooooooooo...............................",
         "...............................oooooooooooooooooooooooooooo...............................",
@@ -190,9 +193,9 @@ enum PixelGrids {
         "...................................oo..oo........oo..oo...................................",
     ]
     static let missCompact: [String] = [
-        "...........................g..",
-        "..........................ppp.",
-        "...........................p..",
+        "..........................k.k.",
+        "..........................kkk.",
+        "...........................k..",
         "...oooooooooooooooooooooooo...",
         "...oooooooooooooooooooooooo...",
         "...ooooeeooooooooooooeeoooo...",
@@ -214,22 +217,68 @@ enum PixelGrids {
     ]
     static let missWide: [String] = [
         "..........................................................................................",
+        "..................................................................wwwwwww.................",
+        ".................................................................wwwwwwwww................",
+        ".................................oooooooooooooooooooooooo.......wwwkkwkkwww...............",
+        ".................................oooooooooooooooooooooooo.......wwwkkkkkwww...............",
+        ".................................ooooeeooooooooooooeeoooo.......wwwwkkkwwww...............",
+        ".................................ooooeeooooooooooooeeoooo........wwwwkwwww................",
+        ".................................oooooooooooooooooooooooo.........wwwwwww.................",
+        ".................................oooooooooooooooooooooooo.................................",
+        "...............................oooooooooooooooooooooooooooo..w..w.........................",
+        "...............................oooooooooooooooooooooooooooo...............................",
+        "...............................oooooooooooooooooooooooooooo...w...........................",
+        "...............................oooooooooooooooooooooooooooo...............................",
+        ".................................oooooooooooooooooooooooo.................................",
+        ".................................oooooooooooooooooooooooo.................................",
+        ".................................oooooooooooooooooooooooo.................................",
+        ".................................oooooooooooooooooooooooo.................................",
+        "...................................oo..oo........oo..oo...................................",
+        "...................................oo..oo........oo..oo...................................",
+        "...................................oo..oo........oo..oo...................................",
+        "...................................oo..oo........oo..oo...................................",
+    ]
+    static let offlineCompact: [String] = [
+        "..............................",
+        "..............................",
+        "..............................",
+        "...oooooooooooooooooooooooo...",
+        "...oooooooooooooooooooooooo...",
+        "...oooeooeooooooooooeooeooo...",
+        "...ooooeeooooooooooooeeoooo...",
+        "...ooooeeooooooooooooeeoooo...",
+        "...oooeooeooooooooooeooeooo...",
+        ".oooooooooooooooooooooooooooo.",
+        ".oooooooooooooooooooooooooooo.",
+        ".oooooooooooooooooooooooooooo.",
+        ".oooooooooooooooooooooooooooo.",
+        "...oooooooooooooooooooooooo...",
+        "...oooooooooooooooooooooooo...",
+        "...oooooooooooooooooooooooo...",
+        "...oooooooooooooooooooooooo...",
+        ".....oo..oo........oo..oo.....",
+        ".....oo..oo........oo..oo.....",
+        ".....oo..oo........oo..oo.....",
+        ".....oo..oo........oo..oo.....",
+    ]
+    static let offlineWide: [String] = [
         "..........................................................................................",
-        "..................................................................k.k.....................",
-        ".................................oooooooooooooooooooooooo.........kkk.....................",
-        ".................................oooooooooooooooooooooooo..........k......................",
-        ".................................ooooeeooooooooooooeeoooo.................................",
-        ".................................ooooeeooooooooooooeeoooo.................................",
+        "..........................................................................................",
+        "..........................................................................................",
         ".................................oooooooooooooooooooooooo.................................",
         ".................................oooooooooooooooooooooooo.................................",
-        "...............................oooooooooooooooooooooooooooo.......g.......................",
-        "...............................oooooooooooooooooooooooooooo......gg.......................",
-        "...............................oooooooooooooooooooooooooooo....pppqpp.....................",
-        "...............................oooooooooooooooooooooooooooo...ppppqppp....................",
-        ".................................oooooooooooooooooooooooo.....ppppqppp....................",
-        ".................................oooooooooooooooooooooooo.....pppqpppp....................",
-        ".................................oooooooooooooooooooooooo......pppppp.....................",
-        ".................................oooooooooooooooooooooooo.......pppp......................",
+        ".................................oooeooeooooooooooeooeooo.................................",
+        ".................................ooooeeooooooooooooeeoooo.................................",
+        ".................................ooooeeooooooooooooeeoooo.................................",
+        ".................................oooeooeooooooooooeooeooo.................................",
+        "...............................oooooooooooooooooooooooooooo...............................",
+        "...............................oooooooooooooooooooooooooooo...............................",
+        "...............................oooooooooooooooooooooooooooo...............................",
+        "...............................oooooooooooooooooooooooooooo...............................",
+        ".................................oooooooooooooooooooooooo.................................",
+        ".................................oooooooooooooooooooooooo.................................",
+        ".................................oooooooooooooooooooooooo.................................",
+        ".................................oooooooooooooooooooooooo.................................",
         "...................................oo..oo........oo..oo...................................",
         "...................................oo..oo........oo..oo...................................",
         "...................................oo..oo........oo..oo...................................",
