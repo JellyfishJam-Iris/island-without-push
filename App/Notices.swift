@@ -63,7 +63,7 @@ final class Notices: NSObject, UNUserNotificationCenterDelegate {
     private func post(_ item: Message, badge: Int) {
         let content = UNMutableNotificationContent()
         if let title = item.title, !title.isEmpty { content.title = String(title.prefix(24)) }
-        content.body = String(item.text.prefix(80))
+        content.body = String(item.text.prefix(200))
         content.sound = .default
         content.badge = NSNumber(value: badge)
         let request = UNNotificationRequest(identifier: "poll." + item.id, content: content, trigger: nil)

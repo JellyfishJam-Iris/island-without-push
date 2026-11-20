@@ -43,7 +43,7 @@ final class AppModel: ObservableObject {
     private var interrupted = false
 
     init() {
-        serverURL = UserDefaults.standard.string(forKey: "server.url") ?? "http://192.168.1.2:8787"
+        serverURL = UserDefaults.standard.string(forKey: "server.url") ?? ""
         standbyEnabled = UserDefaults.standard.object(forKey: "standby.enabled") as? Bool ?? true
         island = IslandController(inputs: { [weak self] in
             guard let self else { return (false, false) }
@@ -148,7 +148,7 @@ struct ContentView: View {
         NavigationStack {
             Form {
                 Section("服务器") {
-                    TextField("http://主机:8787", text: $model.serverURL)
+                    TextField("https://湖的地址/island", text: $model.serverURL)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
