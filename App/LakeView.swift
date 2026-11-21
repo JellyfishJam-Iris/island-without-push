@@ -9,6 +9,30 @@ import WebKit
 /// env(safe-area-inset-*) does the padding), links to other sites open in Safari, camera and microphone
 /// granted to the lake's own pages, a page that died in the background comes back by itself, and a
 /// small bridge: `window.webkit.messageHandlers.lelac.postMessage({cmd: ...})`.
+/// Holds the web view and makes it shorter while the keyboard is up (like Android's adjustResize):
+/// the lake's own layout then puts the input bar right above the keyboard and the messages move up
+/// with it, instead of iOS pushing the whole page (background and all) up. The page pins its
+/// wallpaper to the full height (html.in-app in index.html), so the background stays still.
+final class LakeHost: UIView {
+    let web: WKWebView
+    var keyboardOverlap: CGFloat = 0 {
+        didSet { if keyboardOverlap != oldValue { setNeedsLayout(); layoutIfNeeded() } }
+    }
+
+    init(web: WKWebView) {
+        self.web = web
+        super.init(frame: .zero)
+        addSubview(web)
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        web.frame = CGRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - keyboardOverlap))
+    }
+}
+
 struct LakeView: UIViewRepresentable {
     let url: URL
     /// Bumped by the Clawd sheet's "reload" button.
@@ -17,7 +41,7 @@ struct LakeView: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(home: url, token: reloadToken, onCommand: onCommand) }
 
-    func makeUIView(context: Context) -> WKWebView {
+    func makeUIView(context: Context) -> LakeHost {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()          // localStorage and cookies survive a restart
         config.allowsInlineMediaPlayback = true
@@ -34,12 +58,17 @@ struct LakeView: UIViewRepresentable {
         web.scrollView.bounces = false                    // no whole-page rubber band; inner lists still scroll
         web.isOpaque = false
         web.backgroundColor = .systemBackground
+        let host = LakeHost(web: web)
+        host.backgroundColor = .systemBackground
         context.coordinator.web = web
+        context.coordinator.host = host
+        context.coordinator.watchKeyboard()
         web.load(URLRequest(url: url))
-        return web
+        return host
     }
 
-    func updateUIView(_ web: WKWebView, context: Context) {
+    func updateUIView(_ host: LakeHost, context: Context) {
+        let web = host.web
         let c = context.coordinator
         c.onCommand = onCommand
         if c.home != url {
@@ -53,7 +82,9 @@ struct LakeView: UIViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
         weak var web: WKWebView?
+        weak var host: LakeHost?
         var home: URL
+        private var offsetWatch: NSKeyValueObservation?
         var token: Int
         var onCommand: (String) -> Void
 
@@ -64,6 +95,58 @@ struct LakeView: UIViewRepresentable {
         }
 
         private func isLake(_ url: URL) -> Bool { url.host == home.host && url.port == home.port }
+        /// Our other rooms on the same machine, behind another port (双弈 8448, Coread 8445 ...).
+        private func isHome(_ url: URL) -> Bool { url.host == home.host }
+
+        // MARK: keyboard
+
+        func watchKeyboard() {
+            NotificationCenter.default.addObserver(self, selector: #selector(keyboardMoved(_:)),
+                                                   name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(keyboardMoved(_:)),
+                                                   name: UIResponder.keyboardWillHideNotification, object: nil)
+            // WebKit still tries to scroll the whole page to "reveal" the input; the page is already
+            // above the keyboard, so any such scroll is the old push-up. Put it back.
+            offsetWatch = web?.scrollView.observe(\.contentOffset, options: [.new]) { [weak self] scroll, _ in
+                guard let self, (self.host?.keyboardOverlap ?? 0) > 0, scroll.contentOffset != .zero else { return }
+                scroll.contentOffset = .zero
+            }
+        }
+
+        @objc private func keyboardMoved(_ note: Notification) {
+            guard let host, let window = host.window else { return }
+            var overlap: CGFloat = 0
+            if note.name != UIResponder.keyboardWillHideNotification,
+               let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+                let keyboard = window.convert(end, from: nil)
+                let mine = host.convert(host.bounds, to: window)
+                overlap = max(0, mine.maxY - keyboard.minY)
+            }
+            host.keyboardOverlap = overlap
+            if overlap == 0 { web?.scrollView.contentOffset = .zero }
+        }
+
+        // MARK: our other rooms, in a sheet
+
+        /// 双弈 and the other services on the same machine open over the lake, inside the App;
+        /// swipe the sheet down to come back.
+        @discardableResult
+        private func openInside(_ url: URL?, configuration: WKWebViewConfiguration? = nil) -> WKWebView {
+            let config = configuration ?? WKWebViewConfiguration()
+            config.allowsInlineMediaPlayback = true
+            let view = WKWebView(frame: .zero, configuration: config)
+            view.allowsLinkPreview = false
+            view.uiDelegate = self
+            let page = UIViewController()
+            page.view = view
+            page.modalPresentationStyle = .pageSheet
+            if let url { view.load(URLRequest(url: url)) }
+            let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+            var top = scene?.windows.first(where: { $0.isKeyWindow })?.rootViewController
+            while let next = top?.presentedViewController { top = next }
+            top?.present(page, animated: true)
+            return view
+        }
 
         // MARK: links
 
@@ -77,9 +160,11 @@ struct LakeView: UIViewRepresentable {
                 UIApplication.shared.open(target)
                 decisionHandler(.cancel); return
             }
-            // A tapped link to another site, in the main page (not inside an iframe such as Roadbook): Safari.
-            if action.navigationType == .linkActivated, action.targetFrame?.isMainFrame ?? true, !isLake(target) {
-                UIApplication.shared.open(target)
+            // A tapped link to another site, in the main page (not inside an iframe such as Roadbook):
+            // our own rooms open in a sheet, everything else in Safari.
+            if webView === web, action.navigationType == .linkActivated, action.targetFrame?.isMainFrame ?? true,
+               !isLake(target) {
+                if isHome(target) { openInside(target) } else { UIApplication.shared.open(target) }
                 decisionHandler(.cancel); return
             }
             decisionHandler(.allow)
@@ -106,7 +191,9 @@ struct LakeView: UIViewRepresentable {
         /// window.open / target=_blank: never replace the lake, hand it to Safari (it also takes downloads).
         func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                      for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-            if let target = action.request.url { UIApplication.shared.open(target) }
+            guard let target = action.request.url else { return nil }
+            if isHome(target) && !isLake(target) { return openInside(nil, configuration: configuration) }
+            UIApplication.shared.open(target)
             return nil
         }
 
