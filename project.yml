@@ -47,6 +47,11 @@ targets:
           NSAllowsLocalNetworking: true
         UILaunchScreen: {}
         UIRequiredDeviceCapabilities: [arm64]
+        # The lake runs inside the App now (App/LakeView.swift): photos, the camera and voice go through it.
+        NSCameraUsageDescription: 在湖上拍照片发给 Daddy
+        NSMicrophoneUsageDescription: 在湖上录语音给 Daddy 听
+        NSPhotoLibraryUsageDescription: 在湖上挑照片发给 Daddy
+        NSPhotoLibraryAddUsageDescription: 把湖上的图存进相册
   IslandDemoIsland:
     type: app-extension
     platform: iOS

@@ -12,7 +12,7 @@ struct IslandDemoApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView(model: model)
+            RootView(model: model)
                 .onAppear { Notices.shared.requestOnce() }
         }
         .onChange(of: scenePhase) { phase in model.scene(phase) }
@@ -159,6 +159,15 @@ final class AppModel: ObservableObject {
         islandStatus = island.status
     }
 
+    /// The lake's front page: the island address minus its trailing /island.
+    var lakeURL: URL? {
+        guard let base = baseURL else { return nil }
+        var text = base.absoluteString
+        while text.hasSuffix("/") { text.removeLast() }
+        if text.hasSuffix("/island") { text.removeLast("/island".count) }
+        return URL(string: text + "/")
+    }
+
     private var baseURL: URL? {
         guard let url = URL(string: serverURL.trimmingCharacters(in: .whitespaces)),
               let scheme = url.scheme, ["http", "https"].contains(scheme), url.host != nil else { return nil }
@@ -224,12 +233,56 @@ final class AppModel: ObservableObject {
     }()
 }
 
+/// The lake fills the screen; Clawd's own page (server, standby, island, log) is a sheet the lake opens
+/// with `postMessage({cmd: "clawd"})`. Until there is an address, Clawd's page is all there is.
+struct RootView: View {
+    @ObservedObject var model: AppModel
+    @State private var lakeOpen: Bool
+    @State private var showClawd = false
+    @State private var reloadToken = 0
+
+    init(model: AppModel) {
+        self.model = model
+        // Decided once, so typing an address in the field below does not swap the screen mid-word.
+        _lakeOpen = State(initialValue: model.lakeURL != nil)
+    }
+
+    var body: some View {
+        Group {
+            if lakeOpen, let lake = model.lakeURL {
+                LakeView(url: lake, reloadToken: reloadToken) { command in
+                    if command == "clawd" { showClawd = true }
+                }
+                .ignoresSafeArea()
+            } else {
+                ContentView(model: model, openLake: model.lakeURL == nil ? nil : { lakeOpen = true })
+            }
+        }
+        .sheet(isPresented: $showClawd) {
+            ContentView(model: model, reloadLake: {
+                reloadToken += 1
+                showClawd = false
+            })
+        }
+    }
+}
+
 struct ContentView: View {
     @ObservedObject var model: AppModel
+    var openLake: (() -> Void)? = nil
+    var reloadLake: (() -> Void)? = nil
 
     var body: some View {
         NavigationStack {
             Form {
+                if openLake != nil || reloadLake != nil {
+                    Section("湖") {
+                        if let openLake { Button("打开湖", action: openLake) }
+                        if let reloadLake { Button("重新载入湖", action: reloadLake) }
+                        Text("湖的地址就是下面服务器地址去掉结尾的 /island。")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
                 Section("服务器") {
                     TextField("https://湖的地址/island", text: $model.serverURL)
                         .keyboardType(.URL)
