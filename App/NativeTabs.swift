@@ -22,6 +22,13 @@ final class NativeTabs: NSObject, UITabBarDelegate {
         }
         bar.delegate = self
         bar.isHidden = true
+        // The selected tab's pill, lighter than the system's (宝宝 11/22: "选中颜色再浅一点")
+        let look = UITabBarAppearance()
+        look.selectionIndicatorTintColor = UIColor { traits in
+            traits.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.08) : UIColor(white: 0, alpha: 0.045)
+        }
+        bar.standardAppearance = look
+        bar.scrollEdgeAppearance = look
     }
 
     /// Shows the bar on `tab`, or hides it when tab is "" (the chat, or a page over everything).

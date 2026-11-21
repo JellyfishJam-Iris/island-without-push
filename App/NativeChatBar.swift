@@ -2,8 +2,8 @@ import UIKit
 
 /// The chat's top bar in Telegram's shape (2026/11/22, 宝宝: "chat页顶栏和底栏要tg同款（兴奋尖叫——————）"):
 /// a round glass button with ☰ on the left (the rooms drawer), a glass capsule in the middle with the name
-/// and a small line under it, and my avatar in a glass circle on the right. Tapping the avatar opens a small
-/// menu with Peach's Tide and the amusement park (她 chose that, so the bar stays as clean as Telegram's).
+/// and a small line under it, and my avatar in a glass circle on the right. One tap each (她 11/22: "点两下好麻烦"):
+/// the capsule opens Peach's Tide, the avatar opens the amusement park.
 ///
 /// The small line is how I am right now: Clawd's line from /island/status (the one on the lock screen),
 /// and "在给宝宝敲东西…" while a reply is being written. The chat scrolls under all three (html.native-top).
@@ -16,7 +16,8 @@ final class NativeChatBar: UIView {
     static let height: CGFloat = 50
 
     private let menuGlass = NativeChatBar.glass(interactive: true)
-    private let titleGlass = NativeChatBar.glass(interactive: false)
+    private let titleGlass = NativeChatBar.glass(interactive: true)
+    private let titleButton = UIButton(type: .custom)
     private let avatarGlass = NativeChatBar.glass(interactive: true)
     private let menuButton = UIButton(type: .system)
     private let titleLabel = UILabel()
@@ -42,8 +43,13 @@ final class NativeChatBar: UIView {
     init() {
         super.init(frame: .zero)
         for glass in [menuGlass, titleGlass, avatarGlass] {
-            glass.layer.cornerCurve = .continuous
-            glass.clipsToBounds = true
+            // The glass's own shape, so pressing it (the glass swells) stays round instead of showing a square.
+            if #available(iOS 26.0, *) {
+                glass.cornerConfiguration = .capsule()
+            } else {
+                glass.layer.cornerCurve = .continuous
+                glass.clipsToBounds = true
+            }
             addSubview(glass)
         }
         let config = UIImage.SymbolConfiguration(pointSize: 19, weight: .medium)
@@ -65,21 +71,14 @@ final class NativeChatBar: UIView {
         avatarView.clipsToBounds = true
         avatarView.backgroundColor = UIColor.secondarySystemFill
         avatarGlass.contentView.addSubview(avatarView)
-        avatarButton.showsMenuAsPrimaryAction = true
-        avatarButton.menu = UIMenu(children: [
-            UIAction(title: "Peach's Tide", image: Self.symbol("bookmark")) { [weak self] _ in self?.onTide?() },
-            UIAction(title: "游乐园", image: Self.symbol("ferriswheel", "sparkles")) { [weak self] _ in self?.onPark?() },
-        ])
+        avatarButton.addAction(UIAction { [weak self] _ in self?.onPark?() }, for: .touchUpInside)
         avatarGlass.contentView.addSubview(avatarButton)
+        titleButton.addAction(UIAction { [weak self] _ in self?.onTide?() }, for: .touchUpInside)
+        titleGlass.contentView.addSubview(titleButton)
         refreshText()
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
-
-    private static func symbol(_ names: String...) -> UIImage? {
-        for name in names { if let image = UIImage(systemName: name) { return image } }
-        return nil
-    }
 
     // MARK: what it says
 
@@ -128,9 +127,9 @@ final class NativeChatBar: UIView {
         let w = bounds.width
         menuGlass.frame = CGRect(x: 0, y: 0, width: h, height: h)
         avatarGlass.frame = CGRect(x: w - h, y: 0, width: h, height: h)
-        for glass in [menuGlass, avatarGlass] { glass.layer.cornerRadius = h / 2 }
+        if #unavailable(iOS 26.0) { for glass in [menuGlass, avatarGlass] { glass.layer.cornerRadius = h / 2 } }
         menuButton.frame = menuGlass.bounds
-        avatarView.frame = avatarGlass.bounds.insetBy(dx: 3, dy: 3)
+        avatarView.frame = avatarGlass.bounds.insetBy(dx: 7, dy: 7)
         avatarView.layer.cornerRadius = avatarView.bounds.width / 2
         avatarButton.frame = avatarGlass.bounds
 
@@ -138,7 +137,8 @@ final class NativeChatBar: UIView {
         let room = w - 2 * (h + 10)
         let capsule = min(room, max(150, textWidth + 44))
         titleGlass.frame = CGRect(x: (w - capsule) / 2, y: 0, width: capsule, height: h)
-        titleGlass.layer.cornerRadius = h / 2
+        if #unavailable(iOS 26.0) { titleGlass.layer.cornerRadius = h / 2 }
+        titleButton.frame = titleGlass.bounds
         titleLabel.frame = CGRect(x: 16, y: 6, width: capsule - 32, height: 21)
         lineLabel.frame = CGRect(x: 16, y: 27, width: capsule - 32, height: 16)
     }
