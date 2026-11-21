@@ -113,7 +113,12 @@ final class ImageViewer: UIViewController, UIScrollViewDelegate {
                     page.imageView.transform = CGAffineTransform(translationX: t.x, y: t.y + (t.y >= 0 ? 1 : -1) * 500)
                     self.backdrop.alpha = 0
                     self.counter.alpha = 0
-                }, completion: { _ in self.dismiss(animated: false) })
+                }, completion: { _ in
+                    // Gone before leaving: the status bar coming back re-lays the page out, and the picture
+                    // snapping back to the middle for one frame was the flash (宝宝: "图片会闪一下")
+                    self.view.alpha = 0
+                    self.dismiss(animated: false)
+                })
             } else {
                 UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0) {
                     page.imageView.transform = .identity
@@ -180,7 +185,7 @@ final class ZoomPage: UIScrollView, UIScrollViewDelegate {
     override func layoutSubviews() {
         super.layoutSubviews()
         spinner.center = CGPoint(x: bounds.midX, y: bounds.midY)
-        guard zoomScale <= minimumZoomScale + 0.001 else { return }
+        guard zoomScale <= minimumZoomScale + 0.001, imageView.transform == .identity else { return }
         // At rest the picture is its fitted size, centred by the insets; zooming scales it from there.
         let fitted = fittedSize
         imageView.frame = CGRect(origin: .zero, size: fitted)

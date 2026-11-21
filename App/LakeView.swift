@@ -81,7 +81,7 @@ struct LakeView: UIViewRepresentable {
         config.applicationNameForUserAgent = "Mobile/15E148 LeLacApp/1"
         config.userContentController.add(context.coordinator, name: "lelac")
         // Edge swipes are native here (EdgeNav.swift); swipe.js sees this and hands them over.
-        config.userContentController.addUserScript(WKUserScript(source: "window.__nativeNav = 1; window.__nativeComposer = 1; window.__nativeImage = 1;",
+        config.userContentController.addUserScript(WKUserScript(source: "window.__nativeNav = 1; window.__nativeComposer = 1; window.__nativeImage = 1; window.__nativeMenu = 1;",
                                                                 injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let web = WKWebView(frame: .zero, configuration: config)
         web.navigationDelegate = context.coordinator
@@ -482,6 +482,16 @@ struct LakeView: UIViewRepresentable {
                 if let tone = body?["tone"] as? String { host?.composer?.set(tone: tone) }
             case "composer":
                 composerSaid(body ?? [:])
+            case "msgmenu":
+                guard let web, let b = body else { break }
+                let num = { (k: String) in CGFloat((b[k] as? NSNumber)?.doubleValue ?? 0) }
+                let items = (b["items"] as? [[String: Any]] ?? []).compactMap { d -> MessageMenu.Item? in
+                    guard let id = d["id"] as? String, let title = d["title"] as? String else { return nil }
+                    return MessageMenu.Item(id: id, title: title, on: d["on"] as? Bool ?? false, danger: d["danger"] as? Bool ?? false)
+                }
+                host?.composer?.textView.resignFirstResponder()
+                MessageMenu.show(over: web, rect: CGRect(x: num("x"), y: num("y"), width: num("w"), height: num("h")),
+                                 mine: b["mine"] as? Bool ?? false, items: items) { [weak self] id in self?.click(id) }
             case "image":
                 let urls = (body?["urls"] as? [String] ?? []).compactMap(URL.init(string:))
                 guard !urls.isEmpty else { break }
