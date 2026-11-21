@@ -490,7 +490,12 @@ struct LakeView: UIViewRepresentable {
                     return MessageMenu.Item(id: id, title: title, on: d["on"] as? Bool ?? false, danger: d["danger"] as? Bool ?? false)
                 }
                 host?.composer?.textView.resignFirstResponder()
+                let holes = (b["holes"] as? [[String: Any]] ?? []).map { d -> CGRect in
+                    let v = { (k: String) in CGFloat((d[k] as? NSNumber)?.doubleValue ?? 0) }
+                    return CGRect(x: v("x"), y: v("y"), width: v("w"), height: v("h"))
+                }
                 MessageMenu.show(over: web, rect: CGRect(x: num("x"), y: num("y"), width: num("w"), height: num("h")),
+                                 holes: holes,
                                  radius: num("radius"), finger: CGPoint(x: num("px"), y: num("py")),
                                  stamp: b["stamp"] as? String ?? "", items: items) { [weak self] id in self?.click(id) }
             case "image":

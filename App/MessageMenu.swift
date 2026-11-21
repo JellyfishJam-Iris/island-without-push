@@ -15,6 +15,7 @@ final class MessageMenu: UIView {
     private let glass = NativeChatBar.glass(interactive: false)
     private let stack = UIStackView()
     private let bubble: CGRect
+    private let holes: [CGRect]
     private let radius: CGFloat
     private let finger: CGPoint
     private let onPick: (String) -> Void
@@ -25,19 +26,22 @@ final class MessageMenu: UIView {
     private static let width: CGFloat = 238
 
     /// `rect` and `finger` are in the web view's coordinates (CSS pixels are points there).
-    static func show(over web: WKWebView, rect: CGRect, radius: CGFloat, finger: CGPoint, stamp: String,
+    /// `holes` are the message's bubbles (one message can be several); each stays bright.
+    static func show(over web: WKWebView, rect: CGRect, holes: [CGRect], radius: CGFloat, finger: CGPoint, stamp: String,
                      items: [Item], onPick: @escaping (String) -> Void) {
         guard let window = web.window, !items.isEmpty else { return }
-        let menu = MessageMenu(bubble: web.convert(rect, to: window), radius: radius,
+        let menu = MessageMenu(bubble: web.convert(rect, to: window),
+                               holes: (holes.isEmpty ? [rect] : holes).map { web.convert($0, to: window) }, radius: radius,
                                finger: web.convert(finger, to: window), stamp: stamp, items: items, onPick: onPick)
         menu.frame = window.bounds
         window.addSubview(menu)
         menu.appear()
     }
 
-    private init(bubble: CGRect, radius: CGFloat, finger: CGPoint, stamp: String, items: [Item],
+    private init(bubble: CGRect, holes: [CGRect], radius: CGFloat, finger: CGPoint, stamp: String, items: [Item],
                  onPick: @escaping (String) -> Void) {
         self.bubble = bubble
+        self.holes = holes
         self.radius = radius
         self.finger = finger
         self.onPick = onPick
@@ -75,25 +79,30 @@ final class MessageMenu: UIView {
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
+    /// Icon in a fixed column, centred; the titles all start on the same line (宝宝 11/22: smaller icons,
+    /// and Trace's eye was pushed right because it is the widest).
     private func row(_ item: Item) -> UIView {
-        var config = UIButton.Configuration.plain()
-        config.title = item.title
-        config.image = UIImage(systemName: Self.symbol(item),
-                               withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .regular))
-        config.imagePlacement = .leading
-        config.imagePadding = 14
-        config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 18)
-        config.baseForegroundColor = item.danger ? .systemRed : .label
-        config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
-            var a = a; a.font = .systemFont(ofSize: 17); return a
-        }
-        let button = UIButton(configuration: config)
-        button.contentHorizontalAlignment = .leading
+        let button = MenuRow()
         button.heightAnchor.constraint(equalToConstant: Self.rowHeight).isActive = true
+        let tint: UIColor = item.danger ? .systemRed : .label
+        let icon = UIImageView(image: UIImage(systemName: Self.symbol(item),
+                                              withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .regular)))
+        icon.tintColor = tint
+        icon.contentMode = .center
+        let title = UILabel()
+        title.text = item.title
+        title.font = .systemFont(ofSize: 17)
+        title.textColor = tint
+        [icon, title].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; $0.isUserInteractionEnabled = false; button.addSubview($0) }
+        NSLayoutConstraint.activate([
+            icon.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: 18),
+            icon.widthAnchor.constraint(equalToConstant: 24),
+            icon.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+            title.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: 54),
+            title.trailingAnchor.constraint(lessThanOrEqualTo: button.trailingAnchor, constant: -16),
+            title.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+        ])
         button.addAction(UIAction { [weak self] _ in self?.pick(item.id) }, for: .touchUpInside)
-        button.configurationUpdateHandler = { b in
-            b.backgroundColor = b.isHighlighted ? UIColor.label.withAlphaComponent(0.07) : .clear
-        }
         return button
     }
 
@@ -114,7 +123,7 @@ final class MessageMenu: UIView {
     // MARK: placing
 
     private var menuHeight: CGFloat {
-        let rows = stack.arrangedSubviews.filter { $0 is UIButton }.count
+        let rows = stack.arrangedSubviews.filter { $0 is MenuRow }.count
         let head = stack.arrangedSubviews.count > rows ? Self.headHeight : 0
         return CGFloat(rows) * Self.rowHeight + head + 16
     }
@@ -122,7 +131,7 @@ final class MessageMenu: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         let path = UIBezierPath(rect: bounds)
-        path.append(UIBezierPath(roundedRect: bubble, cornerRadius: radius))
+        for hole in holes { path.append(UIBezierPath(roundedRect: hole, cornerRadius: radius)) }
         dim.path = path.cgPath
         dim.frame = bounds
 
@@ -194,5 +203,12 @@ final class MessageMenu: UIView {
         guard !picked else { return }
         picked = true
         disappear { self.onPick(id) }
+    }
+}
+
+/// One row of the menu: a plain control that shades while pressed.
+private final class MenuRow: UIControl {
+    override var isHighlighted: Bool {
+        didSet { backgroundColor = isHighlighted ? UIColor.label.withAlphaComponent(0.07) : .clear }
     }
 }
