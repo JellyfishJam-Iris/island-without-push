@@ -85,6 +85,24 @@ struct LakeView: UIViewRepresentable {
             decisionHandler(.allow)
         }
 
+        /// The lake answered with an error page (a wrong address gives FastAPI's {"detail":"Not Found"}).
+        func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse,
+                     decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+            if response.isForMainFrame, let http = response.response as? HTTPURLResponse, http.statusCode >= 400 {
+                DispatchQueue.main.async { self.onCommand("unreachable") }
+            }
+            decisionHandler(.allow)
+        }
+
+        /// No answer at all (offline, wrong host). Cancelled loads (-999) and our own hand-offs to
+        /// Safari (WebKit 102) are not failures.
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
+                     withError error: Error) {
+            let e = error as NSError
+            if e.code == NSURLErrorCancelled || (e.domain == "WebKitErrorDomain" && e.code == 102) { return }
+            onCommand("unreachable")
+        }
+
         /// window.open / target=_blank: never replace the lake, hand it to Safari (it also takes downloads).
         func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                      for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {

@@ -43,7 +43,9 @@ final class AppModel: ObservableObject {
     private var interrupted = false
 
     init() {
-        serverURL = UserDefaults.standard.string(forKey: "server.url") ?? ""
+        // Saved addresses get the same first-word cleaning as baseURL, so the field shows what is used.
+        let saved = UserDefaults.standard.string(forKey: "server.url") ?? ""
+        serverURL = saved.split(whereSeparator: { $0.isWhitespace }).first.map(String.init) ?? ""
         standbyEnabled = UserDefaults.standard.object(forKey: "standby.enabled") as? Bool ?? true
         island = IslandController(inputs: { [weak self] in
             guard let self else { return (false, false) }
@@ -169,7 +171,10 @@ final class AppModel: ObservableObject {
     }
 
     private var baseURL: URL? {
-        guard let url = URL(string: serverURL.trimmingCharacters(in: .whitespaces)),
+        // Only the first word: a pasted address once came with " has" stuck on the end, iOS quietly
+        // encoded it as /island%20has, and every poll for a day was a 404 (the grey island of 11/21).
+        let first = serverURL.split(whereSeparator: { $0.isWhitespace }).first.map(String.init) ?? ""
+        guard let url = URL(string: first),
               let scheme = url.scheme, ["http", "https"].contains(scheme), url.host != nil else { return nil }
         return url
     }
@@ -251,7 +256,8 @@ struct RootView: View {
         Group {
             if lakeOpen, let lake = model.lakeURL {
                 LakeView(url: lake, reloadToken: reloadToken) { command in
-                    if command == "clawd" { showClawd = true }
+                    // "unreachable": the lake page itself did not load, so its menu row is out of reach too.
+                    if command == "clawd" || command == "unreachable" { showClawd = true }
                 }
                 .ignoresSafeArea()
             } else {
