@@ -13,6 +13,10 @@ final class MessageMenu: UIView {
 
     private let dim = CAShapeLayer()
     private let glass = NativeChatBar.glass(interactive: false)
+    /// The glass material itself. It comes and goes by animating `effect` (Apple's way to materialize
+    /// glass); fading the glass view's alpha made it drop its material in one frame — the flash on close
+    /// (宝宝 11/22: "关闭的时候会闪一下").
+    private lazy var material: UIVisualEffect? = glass.effect
     private let stack = UIStackView()
     private let bubble: CGRect
     private let holes: [CGRect]
@@ -163,30 +167,45 @@ final class MessageMenu: UIView {
         glass.layer.position = CGPoint(x: f.minX + ax * f.width, y: f.minY + ay * f.height)
     }
 
+    /// The dimming fades by one explicit animation; the layer's own implicit one is switched off so the two
+    /// never fight.
+    private func fadeDim(to value: Float, duration: CFTimeInterval) {
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = dim.presentation()?.opacity ?? dim.opacity
+        fade.toValue = value
+        fade.duration = duration
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        dim.opacity = value
+        CATransaction.commit()
+        dim.add(fade, forKey: "fade")
+    }
+
     private func appear() {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        _ = material
+        glass.effect = nil
+        stack.alpha = 0
         layoutIfNeeded()
         setAnchorAtFinger()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         dim.opacity = 0
-        glass.alpha = 0
+        CATransaction.commit()
+        fadeDim(to: 1, duration: 0.2)
         glass.transform = CGAffineTransform(scaleX: 0.3, y: 0.3)
-        let fade = CABasicAnimation(keyPath: "opacity")
-        fade.fromValue = 0; fade.toValue = 1; fade.duration = 0.2
-        dim.add(fade, forKey: "in")
-        dim.opacity = 1
         UIView.animate(withDuration: 0.42, delay: 0, usingSpringWithDamping: 0.78, initialSpringVelocity: 0) {
-            self.glass.alpha = 1
+            self.glass.effect = self.material
+            self.stack.alpha = 1
             self.glass.transform = .identity
         }
     }
 
     private func disappear(then: (() -> Void)? = nil) {
-        let fade = CABasicAnimation(keyPath: "opacity")
-        fade.fromValue = 1; fade.toValue = 0; fade.duration = 0.18
-        dim.add(fade, forKey: "out")
-        dim.opacity = 0
-        UIView.animate(withDuration: 0.18, animations: {
-            self.glass.alpha = 0
+        fadeDim(to: 0, duration: 0.2)
+        UIView.animate(withDuration: 0.2, animations: {
+            self.glass.effect = nil
+            self.stack.alpha = 0
             self.glass.transform = CGAffineTransform(scaleX: 0.6, y: 0.6)
         }, completion: { _ in
             self.removeFromSuperview()
