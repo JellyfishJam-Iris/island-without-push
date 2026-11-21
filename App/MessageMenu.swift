@@ -13,10 +13,9 @@ final class MessageMenu: UIView {
 
     private let dim = CAShapeLayer()
     private let glass = NativeChatBar.glass(interactive: false)
-    /// The glass material itself. It comes and goes by animating `effect` (Apple's way to materialize
-    /// glass); fading the glass view's alpha made it drop its material in one frame — the flash on close
-    /// (宝宝 11/22: "关闭的时候会闪一下").
-    private lazy var material: UIVisualEffect? = glass.effect
+    // The glass itself is never faded or dematerialized: fading its alpha made it drop the material in
+    // one frame, and animating its effect away brings Liquid Glass's own swell-and-dissolve, which fought
+    // the shrink (宝宝 11/22: "放大一下闪一下"). It only scales, out of and back into the finger; the rows fade.
     private let stack = UIStackView()
     private let bubble: CGRect
     private let holes: [CGRect]
@@ -183,8 +182,6 @@ final class MessageMenu: UIView {
 
     private func appear() {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        _ = material
-        glass.effect = nil
         stack.alpha = 0
         layoutIfNeeded()
         setAnchorAtFinger()
@@ -195,18 +192,16 @@ final class MessageMenu: UIView {
         fadeDim(to: 1, duration: 0.2)
         glass.transform = CGAffineTransform(scaleX: 0.3, y: 0.3)
         UIView.animate(withDuration: 0.42, delay: 0, usingSpringWithDamping: 0.78, initialSpringVelocity: 0) {
-            self.glass.effect = self.material
-            self.stack.alpha = 1
             self.glass.transform = .identity
         }
+        UIView.animate(withDuration: 0.18, delay: 0.05) { self.stack.alpha = 1 }
     }
 
     private func disappear(then: (() -> Void)? = nil) {
         fadeDim(to: 0, duration: 0.2)
-        UIView.animate(withDuration: 0.2, animations: {
-            self.glass.effect = nil
-            self.stack.alpha = 0
-            self.glass.transform = CGAffineTransform(scaleX: 0.6, y: 0.6)
+        UIView.animate(withDuration: 0.12) { self.stack.alpha = 0 }
+        UIView.animate(withDuration: 0.22, delay: 0, options: [.curveEaseIn], animations: {
+            self.glass.transform = CGAffineTransform(scaleX: 0.04, y: 0.04)
         }, completion: { _ in
             self.removeFromSuperview()
             then?()
