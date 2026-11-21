@@ -15,6 +15,7 @@ import WebKit
 /// wallpaper to the full height (html.in-app in index.html), so the background stays still.
 final class LakeHost: UIView {
     let web: WKWebView
+    var tabs: NativeTabs?
     var keyboardOverlap: CGFloat = 0 {
         didSet { if keyboardOverlap != oldValue { setNeedsLayout(); layoutIfNeeded() } }
     }
@@ -33,6 +34,7 @@ final class LakeHost: UIView {
         let height = max(0, bounds.height - keyboardOverlap)
         web.bounds = CGRect(x: 0, y: 0, width: bounds.width, height: height)
         web.center = CGPoint(x: bounds.width / 2, y: height / 2)
+        tabs?.layout(in: bounds)
     }
 }
 
@@ -71,6 +73,11 @@ struct LakeView: UIViewRepresentable {
         context.coordinator.watchKeyboard()
         context.coordinator.watchLandings()
         context.coordinator.edges.install(on: host)
+        let tabs = NativeTabs()
+        host.tabs = tabs
+        host.addSubview(tabs.bar)
+        context.coordinator.edges.tabs = tabs
+        tabs.onPick = { [weak coordinator = context.coordinator] key in coordinator?.picked(key) }
         // Launched by a tap on a notification: open the lake right there (index.html reads ?nroom= etc.).
         web.load(URLRequest(url: Coordinator.landingURL(url, Notices.shared.takeLanding())))
         return host
@@ -149,6 +156,15 @@ struct LakeView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             if webView === web { loaded = false }
+        }
+
+        // MARK: the native tab bar
+
+        /// Chat slides the tabs away like the left-edge swipe; the other tabs switch at once (App Store does).
+        func picked(_ key: String) {
+            if key == "chat" { edges.run(left: true, to: "chat"); return }
+            web?.callAsyncJavaScript("window.NativeNav && window.NativeNav.tap(t)", arguments: ["t": key],
+                                     in: nil, in: .page, completionHandler: nil)
         }
 
         // MARK: keyboard
@@ -313,6 +329,7 @@ struct LakeView: UIViewRepresentable {
             case "nav":
                 edges.left = body?["left"] as? String ?? ""
                 edges.right = body?["right"] as? String ?? ""
+                edges.tab = body?["tab"] as? String ?? ""
             default:
                 onCommand(cmd)
             }
