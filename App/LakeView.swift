@@ -17,6 +17,13 @@ final class LakeHost: UIView {
     let web: WKWebView
     var tabs: NativeTabs?
     var chatBar: NativeChatBar?
+    var composer: NativeComposer?
+    /// The keyboard's overlap while the composer has it: the composer rides on it, the lake stays full height.
+    var composerKeyboard: CGFloat = 0
+    /// The web's kaomoji drawer at the bottom: the composer sits on top of it.
+    var drawerHeight: CGFloat = 0
+    /// How much of the bottom the composer (and whatever is under it) covers, for the chat's padding.
+    var onComposerCover: ((CGFloat) -> Void)?
     var keyboardOverlap: CGFloat = 0 {
         didSet { if keyboardOverlap != oldValue { setNeedsLayout(); layoutIfNeeded() } }
     }
@@ -42,6 +49,16 @@ final class LakeHost: UIView {
             chatBar.frame = CGRect(x: 12, y: safeAreaInsets.top + 4, width: bounds.width - 24, height: NativeChatBar.height)
             chatBar.transform = transform
         }
+        if let composer {
+            let h = composer.barHeight
+            let bottom = max(safeAreaInsets.bottom, 8)
+            let lift = composerKeyboard > 0 ? composerKeyboard + 6 : drawerHeight > 0 ? drawerHeight + 6 : bottom + 2
+            let transform = composer.transform
+            composer.transform = .identity
+            composer.frame = CGRect(x: 10, y: bounds.height - lift - h, width: bounds.width - 20, height: h)
+            composer.transform = transform
+            onComposerCover?(lift + h)
+        }
     }
 }
 
@@ -64,7 +81,7 @@ struct LakeView: UIViewRepresentable {
         config.applicationNameForUserAgent = "Mobile/15E148 LeLacApp/1"
         config.userContentController.add(context.coordinator, name: "lelac")
         // Edge swipes are native here (EdgeNav.swift); swipe.js sees this and hands them over.
-        config.userContentController.addUserScript(WKUserScript(source: "window.__nativeNav = 1;",
+        config.userContentController.addUserScript(WKUserScript(source: "window.__nativeNav = 1; window.__nativeComposer = 1;",
                                                                 injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let web = WKWebView(frame: .zero, configuration: config)
         web.navigationDelegate = context.coordinator
@@ -97,6 +114,19 @@ struct LakeView: UIViewRepresentable {
         chatBar.onMenu = { [weak c] in c?.edges.top = false; c?.click("roomsBtn") }
         chatBar.onTide = { [weak c] in c?.click("ptideBtn") }
         chatBar.onPark = { [weak c] in c?.click("parkBtn") }
+        let composer = NativeComposer()
+        composer.isHidden = true
+        host.composer = composer
+        host.addSubview(composer)
+        context.coordinator.edges.composer = composer
+        composer.uploadURL = url.appendingPathComponent("api/upload")
+        composer.js = { [weak c] body, args, done in c?.run(body, args, done) }
+        composer.onResize = { [weak host] in
+            guard let host else { return }
+            UIView.animate(withDuration: 0.15) { host.setNeedsLayout(); host.layoutIfNeeded() }
+        }
+        host.onComposerCover = { [weak c] cover in c?.cover(cover) }
+        c.watchDismiss()
         // Launched by a tap on a notification: open the lake right there (index.html reads ?nroom= etc.).
         web.load(URLRequest(url: Coordinator.landingURL(url, Notices.shared.takeLanding())))
         return host
@@ -116,7 +146,7 @@ struct LakeView: UIViewRepresentable {
         }
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, UIGestureRecognizerDelegate {
         weak var web: WKWebView?
         weak var host: LakeHost?
         var home: URL
@@ -171,6 +201,8 @@ struct LakeView: UIViewRepresentable {
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             guard webView === web else { return }
             loaded = true
+            lastCover = -1                 // a fresh page has not heard the composer's size yet
+            host?.setNeedsLayout()
             deliverLanding()
         }
 
@@ -217,9 +249,95 @@ struct LakeView: UIViewRepresentable {
                 let mine = host.convert(host.bounds, to: window)
                 overlap = max(0, mine.maxY - keyboard.minY)
             }
-            host.keyboardOverlap = overlap
-            if overlap == 0 { web?.scrollView.contentOffset = .zero }
+            // The composer has the keyboard: it rides on it and the lake stays full height, so the chat shows
+            // through the keyboard. A field inside the lake has it: the lake gets shorter, as before.
+            let editing = host.composer?.textView.isFirstResponder == true
+            let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
+            let curve = note.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
+            UIView.animate(withDuration: duration, delay: 0, options: [UIView.AnimationOptions(rawValue: curve << 16), .beginFromCurrentState]) {
+                host.composerKeyboard = editing ? overlap : 0
+                host.keyboardOverlap = editing ? 0 : overlap
+                host.setNeedsLayout()
+                host.layoutIfNeeded()
+            }
+            if overlap == 0 || editing { web?.scrollView.contentOffset = .zero }
+            if editing && overlap > 0 { hookDragToDismiss() }
         }
+
+        // MARK: the composer
+
+        private var lastCover: CGFloat = -1
+
+        func run(_ body: String, _ args: [String: Any], _ done: ((Any?) -> Void)?) {
+            web?.callAsyncJavaScript(body, arguments: args, in: nil, in: .page) { result in
+                done?(try? result.get())
+            }
+        }
+
+        /// The chat keeps this much room at the bottom (composer + keyboard or drawer).
+        func cover(_ value: CGFloat) {
+            guard abs(value - lastCover) > 0.5 else { return }
+            lastCover = value
+            run("window.NativeComposer && window.NativeComposer.inset(px)", ["px": value], nil)
+        }
+
+        private func composerSaid(_ body: [String: Any]) {
+            guard let host, let composer = host.composer else { return }
+            if let text = body["text"] as? String { composer.set(text: text) }
+            if let mode = body["mode"] as? String { composer.set(mode: mode) }
+            if let open = body["drawerOpen"] as? Bool {
+                composer.set(drawerOpen: open)
+                let height = open ? 272 + host.safeAreaInsets.bottom : 0
+                UIView.animate(withDuration: 0.28, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState]) {
+                    host.drawerHeight = height
+                    host.setNeedsLayout()
+                    host.layoutIfNeeded()
+                }
+            }
+            if let measured = body["drawer"] as? Double, composer.drawerOpen, measured > 0 {
+                UIView.animate(withDuration: 0.12) {
+                    host.drawerHeight = CGFloat(measured)
+                    host.setNeedsLayout()
+                    host.layoutIfNeeded()
+                }
+            }
+        }
+
+        // MARK: putting the keyboard away (tap the chat, or drag it down — like Telegram)
+
+        private var hookedScrolls = Set<ObjectIdentifier>()
+
+        func watchDismiss() {
+            let tap = UITapGestureRecognizer(target: self, action: #selector(tappedLake))
+            tap.cancelsTouchesInView = false
+            tap.delegate = self
+            web?.addGestureRecognizer(tap)
+        }
+
+        @objc private func tappedLake() { host?.composer?.textView.resignFirstResponder() }
+
+        /// The chat list is a scroll view inside the web view (WebKit makes one per scrolling element):
+        /// a downward drag on it puts the keyboard away.
+        private func hookDragToDismiss() {
+            guard let web else { return }
+            var stack: [UIView] = [web]
+            while let view = stack.popLast() {
+                if let scroll = view as? UIScrollView, !hookedScrolls.contains(ObjectIdentifier(scroll)) {
+                    hookedScrolls.insert(ObjectIdentifier(scroll))
+                    scroll.panGestureRecognizer.addTarget(self, action: #selector(dragged(_:)))
+                }
+                stack.append(contentsOf: view.subviews)
+            }
+        }
+
+        @objc private func dragged(_ pan: UIPanGestureRecognizer) {
+            guard pan.state == .changed, let composer = host?.composer, composer.textView.isFirstResponder else { return }
+            let v = pan.velocity(in: pan.view)
+            if v.y > 250 && abs(v.y) > abs(v.x) { composer.textView.resignFirstResponder() }
+        }
+
+        func gestureRecognizer(_ recognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
 
         // MARK: our other rooms, in a sheet
 
@@ -357,9 +475,13 @@ struct LakeView: UIViewRepresentable {
                 edges.right = body?["right"] as? String ?? ""
                 edges.tab = body?["tab"] as? String ?? ""
                 edges.top = body?["top"] as? Bool ?? false
+                if !edges.top { host?.composer?.textView.resignFirstResponder() }
             case "chrome":
                 host?.chatBar?.set(title: body?["title"] as? String, typing: body?["typing"] as? Bool,
                                    avatar: body?["avatar"] as? String)
+                if let tone = body?["tone"] as? String { host?.composer?.set(tone: tone) }
+            case "composer":
+                composerSaid(body ?? [:])
             default:
                 onCommand(cmd)
             }

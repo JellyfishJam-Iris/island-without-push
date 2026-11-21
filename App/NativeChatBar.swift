@@ -129,7 +129,7 @@ final class NativeChatBar: UIView {
         avatarGlass.frame = CGRect(x: w - h, y: 0, width: h, height: h)
         if #unavailable(iOS 26.0) { for glass in [menuGlass, avatarGlass] { glass.layer.cornerRadius = h / 2 } }
         menuButton.frame = menuGlass.bounds
-        avatarView.frame = avatarGlass.bounds.insetBy(dx: 7, dy: 7)
+        avatarView.frame = avatarGlass.bounds.insetBy(dx: 4, dy: 4)   // a thin ring (她 11/22: 7 was too thick)
         avatarView.layer.cornerRadius = avatarView.bounds.width / 2
         avatarButton.frame = avatarGlass.bounds
 

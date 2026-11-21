@@ -21,6 +21,9 @@ final class EdgeNav: NSObject, UIGestureRecognizerDelegate {
     weak var host: LakeHost?
     weak var tabs: NativeTabs?
     weak var chatBar: NativeChatBar?
+    weak var composer: NativeComposer?
+    /// The chat's own native pieces (top bar, composer): they come and go, and travel, together.
+    private var chatChrome: [UIView] { [chatBar, composer].compactMap { $0 } }
     /// What the page last said: the leaf (or "page") each edge leads to, "" for nothing; the tab on screen.
     var left = ""
     var right = ""
@@ -140,29 +143,31 @@ final class EdgeNav: NSObject, UIGestureRecognizerDelegate {
     }
 
     private func showTop(_ on: Bool) {
-        guard let chatBar else { return }
-        if on { chatBar.alpha = 0; chatBar.isHidden = false }
-        UIView.animate(withDuration: 0.16, animations: { chatBar.alpha = on ? 1 : 0 },
-                       completion: { _ in if !self.top { chatBar.isHidden = true }; chatBar.alpha = 1 })
+        for view in chatChrome {
+            if on { view.alpha = 0; view.isHidden = false }
+            UIView.animate(withDuration: 0.16, animations: { view.alpha = on ? 1 : 0 },
+                           completion: { _ in if !self.top { view.isHidden = true }; view.alpha = 1 })
+        }
     }
 
     /// Where the bars sit during the slide, in z-order and visibility.
     private func placeBar() {
         guard let host, let bar = tabs?.bar, let web, let snap else { return }
         topFollows = .none
-        if let chatBar {
+        composer?.textView.resignFirstResponder()
+        for view in chatChrome {
             if push && moveBar {
-                // Leaving the chat: its top bar goes with the old picture, under the incoming tabs.
-                host.insertSubview(chatBar, aboveSubview: snap)
+                // Leaving the chat: its bars go with the old picture, under the incoming tabs.
+                host.insertSubview(view, aboveSubview: snap)
                 topFollows = .snap
             } else if mode == "pop" && landing.isEmpty {
-                // Coming back to the chat: the bar is there underneath, moving with the chat.
-                chatBar.alpha = 1
-                chatBar.isHidden = false
-                host.insertSubview(chatBar, aboveSubview: web)
+                // Coming back to the chat: the bars are there underneath, moving with the chat.
+                view.alpha = 1
+                view.isHidden = false
+                host.insertSubview(view, aboveSubview: web)
                 topFollows = .web
             } else {
-                chatBar.isHidden = true
+                view.isHidden = true
             }
         }
         if moveBar {
@@ -195,13 +200,13 @@ final class EdgeNav: NSObject, UIGestureRecognizerDelegate {
             snap.transform = CGAffineTransform(translationX: -0.3 * w * p, y: 0)
             dim.alpha = 0.12 * p
             if moveBar { tabs?.bar.transform = web.transform }
-            if topFollows == .snap { chatBar?.transform = snap.transform }
+            if topFollows == .snap { chatChrome.forEach { $0.transform = snap.transform } }
         } else {
             snap.transform = CGAffineTransform(translationX: w * p, y: 0)
             web.transform = CGAffineTransform(translationX: -0.3 * w * (1 - p), y: 0)
             dim.alpha = 0.12 * (1 - p)
             if moveBar { tabs?.bar.transform = snap.transform }
-            if topFollows == .web { chatBar?.transform = web.transform }
+            if topFollows == .web { chatChrome.forEach { $0.transform = web.transform } }
         }
     }
 
@@ -230,7 +235,7 @@ final class EdgeNav: NSObject, UIGestureRecognizerDelegate {
             snap.transform = .identity
             web.transform = .identity
             tabs?.bar.transform = .identity
-            chatBar?.transform = .identity
+            chatChrome.forEach { $0.transform = .identity }
         }
         web.callAsyncJavaScript("return window.NativeNav ? await window.NativeNav.end(go) : true",
                                 arguments: ["go": go], in: nil, in: .page) { [weak self] _ in
@@ -251,12 +256,14 @@ final class EdgeNav: NSObject, UIGestureRecognizerDelegate {
             bar.transform = .identity
             host.bringSubviewToFront(bar)
         }
-        if let host, let chatBar {
-            chatBar.transform = .identity
-            chatBar.alpha = 1
-            chatBar.isHidden = !top
-            host.insertSubview(chatBar, belowSubview: tabs?.bar ?? chatBar)
-            if tabs == nil { host.bringSubviewToFront(chatBar) }
+        if let host {
+            for view in chatChrome {
+                view.transform = .identity
+                view.alpha = 1
+                view.isHidden = !top
+                host.bringSubviewToFront(view)
+            }
+            if let bar = tabs?.bar { host.bringSubviewToFront(bar) }
         }
         topFollows = .none
         mode = ""
