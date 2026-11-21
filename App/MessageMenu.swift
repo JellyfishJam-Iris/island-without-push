@@ -1,71 +1,74 @@
 import UIKit
 import WebKit
 
-/// Long-pressing a message, natively (2026/11/22, 宝宝: "长按Daddy消息出现的这个窗口…Daddy看怎么做").
-/// The way iMessage and Telegram do it: everything behind goes soft, the bubble lifts out of it, and a
-/// glass list of what can be done stands next to it. The bubble is a picture of itself (the web keeps
-/// the real one), and each row presses the same button in the web's own menu (index.html openMsgSheet),
-/// so what Copy, Favorite, Trace, Delete... do is not rewritten here.
+/// Long-pressing a message, natively (2026/11/22). Second version after 宝宝 showed ChatGPT's
+/// ("我们抄chatgpt…从我手指按下去的地方浮起？"): the chat dims a shade, the pressed bubble stays where it
+/// is and stays bright (a hole in the dimming, no picture of it), and a glass card grows out of the
+/// finger: the message's day and time on top, then icon + title rows. It sits beside the bubble when
+/// there is room (below, else above), and over it only when the bubble is taller than the screen.
+/// Each row presses the same button in the web's own menu (index.html openMsgSheet), so what Copy,
+/// Favorite, Trace, Delete... do is not rewritten here.
 final class MessageMenu: UIView {
     struct Item { let id: String; let title: String; let on: Bool; let danger: Bool }
 
-    private let blur = UIVisualEffectView(effect: nil)
-    private let lifted: UIView
+    private let dim = CAShapeLayer()
     private let glass = NativeChatBar.glass(interactive: false)
     private let stack = UIStackView()
-    private let bubbleFrame: CGRect
-    private let mine: Bool
+    private let bubble: CGRect
+    private let radius: CGFloat
+    private let finger: CGPoint
     private let onPick: (String) -> Void
     private var picked = false
 
-    private static let rowHeight: CGFloat = 46
-    private static let width: CGFloat = 232
+    private static let rowHeight: CGFloat = 44
+    private static let headHeight: CGFloat = 34
+    private static let width: CGFloat = 238
 
-    /// `rect` is the bubble in the web view's coordinates (CSS pixels are points there).
-    static func show(over web: WKWebView, rect: CGRect, mine: Bool, items: [Item], onPick: @escaping (String) -> Void) {
+    /// `rect` and `finger` are in the web view's coordinates (CSS pixels are points there).
+    static func show(over web: WKWebView, rect: CGRect, radius: CGFloat, finger: CGPoint, stamp: String,
+                     items: [Item], onPick: @escaping (String) -> Void) {
         guard let window = web.window, !items.isEmpty else { return }
-        let visible = rect.intersection(web.bounds.insetBy(dx: 0, dy: 0))
-        guard !visible.isNull, visible.height > 4,
-              let picture = web.resizableSnapshotView(from: visible, afterScreenUpdates: false, withCapInsets: .zero)
-        else { return }
-        let menu = MessageMenu(picture: picture, frame: web.convert(visible, to: window), mine: mine,
-                               items: items, onPick: onPick)
+        let menu = MessageMenu(bubble: web.convert(rect, to: window), radius: radius,
+                               finger: web.convert(finger, to: window), stamp: stamp, items: items, onPick: onPick)
         menu.frame = window.bounds
         window.addSubview(menu)
         menu.appear()
     }
 
-    private init(picture: UIView, frame: CGRect, mine: Bool, items: [Item], onPick: @escaping (String) -> Void) {
-        lifted = picture
-        bubbleFrame = frame
-        self.mine = mine
+    private init(bubble: CGRect, radius: CGFloat, finger: CGPoint, stamp: String, items: [Item],
+                 onPick: @escaping (String) -> Void) {
+        self.bubble = bubble
+        self.radius = radius
+        self.finger = finger
         self.onPick = onPick
         super.init(frame: .zero)
-        blur.frame = bounds
-        blur.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        addSubview(blur)
+        dim.fillColor = UIColor.black.withAlphaComponent(0.2).cgColor
+        dim.fillRule = .evenOdd
+        layer.addSublayer(dim)
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(outside)))
 
-        lifted.frame = frame
-        lifted.layer.shadowColor = UIColor.black.cgColor
-        lifted.layer.shadowOpacity = 0.18
-        lifted.layer.shadowRadius = 14
-        lifted.layer.shadowOffset = CGSize(width: 0, height: 6)
-        addSubview(lifted)
-
-        glass.layer.cornerRadius = 22
+        glass.layer.cornerRadius = 26
         glass.layer.cornerCurve = .continuous
         glass.clipsToBounds = true
         stack.axis = .vertical
-        for (i, item) in items.enumerated() {
-            if i > 0 {
-                let line = UIView()
-                line.backgroundColor = UIColor.separator.withAlphaComponent(0.35)
-                line.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale).isActive = true
-                stack.addArrangedSubview(line)
-            }
-            stack.addArrangedSubview(row(item))
+        stack.isLayoutMarginsRelativeArrangement = true
+        stack.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0)
+        if !stamp.isEmpty {
+            let head = UILabel()
+            head.text = stamp
+            head.font = .systemFont(ofSize: 14, weight: .medium)
+            head.textColor = .secondaryLabel
+            let box = UIView()
+            box.addSubview(head)
+            head.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                head.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 22),
+                head.centerYAnchor.constraint(equalTo: box.centerYAnchor),
+                box.heightAnchor.constraint(equalToConstant: Self.headHeight),
+            ])
+            stack.addArrangedSubview(box)
         }
+        items.forEach { stack.addArrangedSubview(row($0)) }
         glass.contentView.addSubview(stack)
         addSubview(glass)
     }
@@ -75,21 +78,21 @@ final class MessageMenu: UIView {
     private func row(_ item: Item) -> UIView {
         var config = UIButton.Configuration.plain()
         config.title = item.title
-        config.image = UIImage(systemName: Self.symbol(item))
-        config.imagePlacement = .trailing
-        config.imagePadding = 10
-        config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 18, bottom: 0, trailing: 18)
+        config.image = UIImage(systemName: Self.symbol(item),
+                               withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .regular))
+        config.imagePlacement = .leading
+        config.imagePadding = 14
+        config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 18)
         config.baseForegroundColor = item.danger ? .systemRed : .label
         config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
-            var a = a; a.font = .systemFont(ofSize: 16.5); return a
+            var a = a; a.font = .systemFont(ofSize: 17); return a
         }
         let button = UIButton(configuration: config)
-        button.contentHorizontalAlignment = .fill
+        button.contentHorizontalAlignment = .leading
         button.heightAnchor.constraint(equalToConstant: Self.rowHeight).isActive = true
         button.addAction(UIAction { [weak self] _ in self?.pick(item.id) }, for: .touchUpInside)
-        // title left, icon right, like the system menus
         button.configurationUpdateHandler = { b in
-            b.backgroundColor = b.isHighlighted ? UIColor.label.withAlphaComponent(0.08) : .clear
+            b.backgroundColor = b.isHighlighted ? UIColor.label.withAlphaComponent(0.07) : .clear
         }
         return button
     }
@@ -110,44 +113,72 @@ final class MessageMenu: UIView {
 
     // MARK: placing
 
+    private var menuHeight: CGFloat {
+        let rows = stack.arrangedSubviews.filter { $0 is UIButton }.count
+        let head = stack.arrangedSubviews.count > rows ? Self.headHeight : 0
+        return CGFloat(rows) * Self.rowHeight + head + 16
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
-        let count = stack.arrangedSubviews.filter { $0 is UIButton }.count
-        let height = CGFloat(count) * Self.rowHeight + CGFloat(max(0, count - 1)) / UIScreen.main.scale
+        let path = UIBezierPath(rect: bounds)
+        path.append(UIBezierPath(roundedRect: bubble, cornerRadius: radius))
+        dim.path = path.cgPath
+        dim.frame = bounds
+
         let safe = safeAreaInsets
-        let margin: CGFloat = 12
-        var x = mine ? bubbleFrame.maxX - Self.width : bubbleFrame.minX
-        x = max(margin, min(x, bounds.width - Self.width - margin))
-        var y = bubbleFrame.maxY + 10
-        if y + height > bounds.height - safe.bottom - margin {
-            let above = bubbleFrame.minY - 10 - height
-            y = above >= safe.top + margin ? above : bounds.height - safe.bottom - margin - height
-        }
-        glass.frame = CGRect(x: x, y: y, width: Self.width, height: height)
+        let margin: CGFloat = 12, gap: CGFloat = 10
+        let top = safe.top + margin, bottom = bounds.height - safe.bottom - margin
+        let h = menuHeight, w = Self.width
+        // Across: it grows from the finger. In the right half it hangs to the left of it, in the left half to the right.
+        var x = finger.x > bounds.midX ? finger.x - w + 24 : finger.x - 24
+        x = max(margin, min(x, bounds.width - w - margin))
+        // Down: beside the bubble if there is room (below first, like ChatGPT), else at the finger.
+        var y: CGFloat
+        if bubble.maxY + gap + h <= bottom { y = bubble.maxY + gap }
+        else if bubble.minY - gap - h >= top { y = bubble.minY - gap - h }
+        else { y = finger.y + 8 + h <= bottom ? finger.y + 8 : finger.y - 8 - h }
+        y = max(top, min(y, bottom - h))
+        glass.frame = CGRect(x: x, y: y, width: w, height: h)
         stack.frame = glass.bounds
     }
 
     // MARK: in and out
 
+    /// The card's scale animation is anchored on the finger, so it grows out of where the press was.
+    private func setAnchorAtFinger() {
+        let f = glass.frame
+        let ax = min(1, max(0, (finger.x - f.minX) / f.width))
+        let ay = min(1, max(0, (finger.y - f.minY) / f.height))
+        glass.layer.anchorPoint = CGPoint(x: ax, y: ay)
+        glass.layer.position = CGPoint(x: f.minX + ax * f.width, y: f.minY + ay * f.height)
+    }
+
     private func appear() {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         layoutIfNeeded()
+        setAnchorAtFinger()
+        dim.opacity = 0
         glass.alpha = 0
-        glass.transform = CGAffineTransform(scaleX: 0.85, y: 0.85)
-        UIView.animate(withDuration: 0.25) { self.blur.effect = UIBlurEffect(style: .systemUltraThinMaterial) }
-        UIView.animate(withDuration: 0.42, delay: 0, usingSpringWithDamping: 0.72, initialSpringVelocity: 0) {
-            self.lifted.transform = CGAffineTransform(scaleX: 1.03, y: 1.03)
+        glass.transform = CGAffineTransform(scaleX: 0.3, y: 0.3)
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0; fade.toValue = 1; fade.duration = 0.2
+        dim.add(fade, forKey: "in")
+        dim.opacity = 1
+        UIView.animate(withDuration: 0.42, delay: 0, usingSpringWithDamping: 0.78, initialSpringVelocity: 0) {
             self.glass.alpha = 1
             self.glass.transform = .identity
         }
     }
 
     private func disappear(then: (() -> Void)? = nil) {
-        UIView.animate(withDuration: 0.2, animations: {
-            self.blur.effect = nil
-            self.lifted.transform = .identity
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1; fade.toValue = 0; fade.duration = 0.18
+        dim.add(fade, forKey: "out")
+        dim.opacity = 0
+        UIView.animate(withDuration: 0.18, animations: {
             self.glass.alpha = 0
-            self.glass.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
+            self.glass.transform = CGAffineTransform(scaleX: 0.6, y: 0.6)
         }, completion: { _ in
             self.removeFromSuperview()
             then?()

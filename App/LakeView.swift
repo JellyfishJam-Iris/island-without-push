@@ -491,7 +491,8 @@ struct LakeView: UIViewRepresentable {
                 }
                 host?.composer?.textView.resignFirstResponder()
                 MessageMenu.show(over: web, rect: CGRect(x: num("x"), y: num("y"), width: num("w"), height: num("h")),
-                                 mine: b["mine"] as? Bool ?? false, items: items) { [weak self] id in self?.click(id) }
+                                 radius: num("radius"), finger: CGPoint(x: num("px"), y: num("py")),
+                                 stamp: b["stamp"] as? String ?? "", items: items) { [weak self] id in self?.click(id) }
             case "image":
                 let urls = (body?["urls"] as? [String] ?? []).compactMap(URL.init(string:))
                 guard !urls.isEmpty else { break }
