@@ -16,6 +16,7 @@ import WebKit
 final class LakeHost: UIView {
     let web: WKWebView
     var tabs: NativeTabs?
+    var chatBar: NativeChatBar?
     var keyboardOverlap: CGFloat = 0 {
         didSet { if keyboardOverlap != oldValue { setNeedsLayout(); layoutIfNeeded() } }
     }
@@ -35,11 +36,19 @@ final class LakeHost: UIView {
         web.bounds = CGRect(x: 0, y: 0, width: bounds.width, height: height)
         web.center = CGPoint(x: bounds.width / 2, y: height / 2)
         tabs?.layout(in: bounds)
+        if let chatBar {
+            let transform = chatBar.transform
+            chatBar.transform = .identity
+            chatBar.frame = CGRect(x: 12, y: safeAreaInsets.top + 4, width: bounds.width - 24, height: NativeChatBar.height)
+            chatBar.transform = transform
+        }
     }
 }
 
 struct LakeView: UIViewRepresentable {
     let url: URL
+    /// Clawd's line from the poll; the chat's top bar shows it under the name.
+    let islandLine: String
     /// Bumped by the Clawd sheet's "reload" button.
     let reloadToken: Int
     let onCommand: (String) -> Void
@@ -78,6 +87,16 @@ struct LakeView: UIViewRepresentable {
         host.addSubview(tabs.bar)
         context.coordinator.edges.tabs = tabs
         tabs.onPick = { [weak coordinator = context.coordinator] key in coordinator?.picked(key) }
+        let chatBar = NativeChatBar()
+        chatBar.isHidden = true
+        host.chatBar = chatBar
+        host.addSubview(chatBar)
+        context.coordinator.edges.chatBar = chatBar
+        chatBar.set(line: islandLine)
+        let c = context.coordinator
+        chatBar.onMenu = { [weak c] in c?.edges.top = false; c?.click("roomsBtn") }
+        chatBar.onTide = { [weak c] in c?.click("ptideBtn") }
+        chatBar.onPark = { [weak c] in c?.click("parkBtn") }
         // Launched by a tap on a notification: open the lake right there (index.html reads ?nroom= etc.).
         web.load(URLRequest(url: Coordinator.landingURL(url, Notices.shared.takeLanding())))
         return host
@@ -87,6 +106,7 @@ struct LakeView: UIViewRepresentable {
         let web = host.web
         let c = context.coordinator
         c.onCommand = onCommand
+        host.chatBar?.set(line: islandLine)
         if c.home != url {
             c.home = url
             web.load(URLRequest(url: url))
@@ -158,7 +178,13 @@ struct LakeView: UIViewRepresentable {
             if webView === web { loaded = false }
         }
 
-        // MARK: the native tab bar
+        // MARK: the native bars
+
+        /// The web's own (hidden) header buttons still do the work: ☰ also knows the "jump back" state.
+        func click(_ id: String) {
+            web?.callAsyncJavaScript("const b = document.getElementById(id); if (b) b.click();",
+                                     arguments: ["id": id], in: nil, in: .page, completionHandler: nil)
+        }
 
         /// Chat slides the tabs away like the left-edge swipe; the other tabs switch at once (App Store does).
         func picked(_ key: String) {
@@ -330,6 +356,10 @@ struct LakeView: UIViewRepresentable {
                 edges.left = body?["left"] as? String ?? ""
                 edges.right = body?["right"] as? String ?? ""
                 edges.tab = body?["tab"] as? String ?? ""
+                edges.top = body?["top"] as? Bool ?? false
+            case "chrome":
+                host?.chatBar?.set(title: body?["title"] as? String, typing: body?["typing"] as? Bool,
+                                   avatar: body?["avatar"] as? String)
             default:
                 onCommand(cmd)
             }

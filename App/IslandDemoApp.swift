@@ -255,7 +255,7 @@ struct RootView: View {
     var body: some View {
         Group {
             if lakeOpen, let lake = model.lakeURL {
-                LakeView(url: lake, reloadToken: reloadToken) { command in
+                LakeView(url: lake, islandLine: model.lastLine, reloadToken: reloadToken) { command in
                     // "unreachable": the lake page itself did not load, so its menu row is out of reach too.
                     if command == "clawd" || command == "unreachable" { showClawd = true }
                 }

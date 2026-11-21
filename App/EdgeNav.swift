@@ -20,10 +20,15 @@ import WebKit
 final class EdgeNav: NSObject, UIGestureRecognizerDelegate {
     weak var host: LakeHost?
     weak var tabs: NativeTabs?
+    weak var chatBar: NativeChatBar?
     /// What the page last said: the leaf (or "page") each edge leads to, "" for nothing; the tab on screen.
     var left = ""
     var right = ""
     var tab = "" { didSet { if !busy { tabs?.show(tab) } } }
+    /// The chat is showing (no page, no drawer, no tabs): only then the chat's top bar is out.
+    var top = false { didSet { if !busy && top != oldValue { showTop(top) } } }
+    private enum Follow { case none, snap, web }
+    private var topFollows = Follow.none
 
     private var snap: UIView?
     private var dim: UIView?
@@ -31,6 +36,7 @@ final class EdgeNav: NSObject, UIGestureRecognizerDelegate {
     private var mode = ""            // "pop" / "push" once the page answered; "" while waiting
     private var moveBar = false      // the bar travels with the moving layer (chat <-> tabs)
     private var landing = ""         // the tab the swipe lands on ("" = the chat)
+    private var fromTab = ""         // the tab under the finger when the swipe began
     private var progress: CGFloat = 0
     private var busy = false         // from the first touch until everything is put back
     private var endedEarly: (go: Bool, velocity: CGFloat)?
@@ -80,7 +86,7 @@ final class EdgeNav: NSObject, UIGestureRecognizerDelegate {
         case .began:
             begin(push: recognizer.edges == .right, target: "", host: host, web: web)
         case .changed:
-            if !mode.isEmpty { apply(progress) }
+            if !mode.isEmpty { apply(progress); followSelection() }
         case .ended, .cancelled, .failed:
             let velocity = recognizer.velocity(in: host).x * dir
             let go = recognizer.state == .ended && (progress > 0.5 || (velocity > 450 && progress > 0.04))
@@ -97,6 +103,7 @@ final class EdgeNav: NSObject, UIGestureRecognizerDelegate {
         mode = ""
         moveBar = false
         endedEarly = nil
+        fromTab = tab
         picture.frame = web.frame
         picture.isUserInteractionEnabled = false
         let shade = UIView(frame: host.bounds)
@@ -132,9 +139,32 @@ final class EdgeNav: NSObject, UIGestureRecognizerDelegate {
         }
     }
 
-    /// Where the bar sits during the slide, in z-order and visibility.
+    private func showTop(_ on: Bool) {
+        guard let chatBar else { return }
+        if on { chatBar.alpha = 0; chatBar.isHidden = false }
+        UIView.animate(withDuration: 0.16, animations: { chatBar.alpha = on ? 1 : 0 },
+                       completion: { _ in if !self.top { chatBar.isHidden = true }; chatBar.alpha = 1 })
+    }
+
+    /// Where the bars sit during the slide, in z-order and visibility.
     private func placeBar() {
         guard let host, let bar = tabs?.bar, let web, let snap else { return }
+        topFollows = .none
+        if let chatBar {
+            if push && moveBar {
+                // Leaving the chat: its top bar goes with the old picture, under the incoming tabs.
+                host.insertSubview(chatBar, aboveSubview: snap)
+                topFollows = .snap
+            } else if mode == "pop" && landing.isEmpty {
+                // Coming back to the chat: the bar is there underneath, moving with the chat.
+                chatBar.alpha = 1
+                chatBar.isHidden = false
+                host.insertSubview(chatBar, aboveSubview: web)
+                topFollows = .web
+            } else {
+                chatBar.isHidden = true
+            }
+        }
         if moveBar {
             // Chat <-> tabs: the bar belongs to the tabs leaf, whichever layer that is.
             if push { tabs?.show(landing); host.insertSubview(bar, aboveSubview: web) }
@@ -148,6 +178,14 @@ final class EdgeNav: NSObject, UIGestureRecognizerDelegate {
         }
     }
 
+    /// Tab <-> tab: the bar's selection jumps once the finger is past half way, not after letting go
+    /// (宝宝: "滑动切换页面的时候深色这个选区变得稍微有点慢").
+    private func followSelection() {
+        guard !moveBar, mode != "", !landing.isEmpty, !fromTab.isEmpty, landing != fromTab else { return }
+        let want = progress > 0.5 ? landing : fromTab
+        if tabs?.bar.selectedItem?.tag != NativeTabs.keys.firstIndex(of: want) { tabs?.show(want) }
+    }
+
     /// p = how far along: 0 where the finger started, 1 at the destination.
     private func apply(_ p: CGFloat) {
         guard let host, let web, let snap, let dim else { return }
@@ -157,11 +195,13 @@ final class EdgeNav: NSObject, UIGestureRecognizerDelegate {
             snap.transform = CGAffineTransform(translationX: -0.3 * w * p, y: 0)
             dim.alpha = 0.12 * p
             if moveBar { tabs?.bar.transform = web.transform }
+            if topFollows == .snap { chatBar?.transform = snap.transform }
         } else {
             snap.transform = CGAffineTransform(translationX: w * p, y: 0)
             web.transform = CGAffineTransform(translationX: -0.3 * w * (1 - p), y: 0)
             dim.alpha = 0.12 * (1 - p)
             if moveBar { tabs?.bar.transform = snap.transform }
+            if topFollows == .web { chatBar?.transform = web.transform }
         }
     }
 
@@ -174,7 +214,9 @@ final class EdgeNav: NSObject, UIGestureRecognizerDelegate {
         let initial = abs(distance) > 1 ? max(-20, min(20, (go ? velocity : -velocity) / abs(distance))) : 0
         let spring = UISpringTimingParameters(dampingRatio: 1, initialVelocity: CGVector(dx: initial, dy: 0))
         let animator = UIViewPropertyAnimator(duration: 0.36, timingParameters: spring)
-        if go && !moveBar && !landing.isEmpty && tab != landing { tabs?.show(landing) }   // tab <-> tab
+        if !moveBar && !landing.isEmpty && !fromTab.isEmpty {   // tab <-> tab: the selection goes first
+            tabs?.show(go ? landing : fromTab)
+        }
         animator.addAnimations { self.apply(target) }
         animator.addCompletion { _ in self.settle(go: go) }
         animator.startAnimation()
@@ -188,6 +230,7 @@ final class EdgeNav: NSObject, UIGestureRecognizerDelegate {
             snap.transform = .identity
             web.transform = .identity
             tabs?.bar.transform = .identity
+            chatBar?.transform = .identity
         }
         web.callAsyncJavaScript("return window.NativeNav ? await window.NativeNav.end(go) : true",
                                 arguments: ["go": go], in: nil, in: .page) { [weak self] _ in
@@ -208,6 +251,14 @@ final class EdgeNav: NSObject, UIGestureRecognizerDelegate {
             bar.transform = .identity
             host.bringSubviewToFront(bar)
         }
+        if let host, let chatBar {
+            chatBar.transform = .identity
+            chatBar.alpha = 1
+            chatBar.isHidden = !top
+            host.insertSubview(chatBar, belowSubview: tabs?.bar ?? chatBar)
+            if tabs == nil { host.bringSubviewToFront(chatBar) }
+        }
+        topFollows = .none
         mode = ""
         moveBar = false
         endedEarly = nil
