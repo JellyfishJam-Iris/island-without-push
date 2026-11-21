@@ -8,7 +8,7 @@ import Foundation
 final class Poller {
     static let wait = 20
 
-    typealias Presence = () -> (background: Bool, standby: Bool)
+    typealias Presence = () -> (background: Bool, standby: Bool, note: String)
 
     private let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
@@ -44,7 +44,7 @@ final class Poller {
         task = nil
     }
 
-    private func fetch(base: URL, presence: (background: Bool, standby: Bool)) async throws -> PollResponse {
+    private func fetch(base: URL, presence: (background: Bool, standby: Bool, note: String)) async throws -> PollResponse {
         var components = URLComponents(url: base.appendingPathComponent("status"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "wait", value: String(Self.wait))]
         var request = URLRequest(url: components.url!)
@@ -52,6 +52,9 @@ final class Poller {
         request.timeoutInterval = TimeInterval(Self.wait + 15)
         request.setValue(presence.background ? "background" : "foreground", forHTTPHeaderField: "X-Presence")
         request.setValue(presence.standby ? "on" : "off", forHTTPHeaderField: "X-Standby")
+        // The last thing that happened to the standby audio (ASCII only), so the server can tell
+        // "the silence was cut and never came back" from "iOS took the whole App away".
+        if !presence.note.isEmpty { request.setValue(presence.note, forHTTPHeaderField: "X-Note") }
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw PollError("没有回应") }
         guard (200..<300).contains(http.statusCode) else { throw PollError("HTTP \(http.statusCode)") }

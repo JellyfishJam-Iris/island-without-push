@@ -51,21 +51,102 @@ final class AppModel: ObservableObject {
         }, log: { [weak self] line in self?.note(line) })
         islandStatus = island.status
         standby.onExpiration = { [weak self] in self?.updateReception() }
-        NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil,
-                                               queue: .main) { [weak self] notification in
+        let center = NotificationCenter.default
+        center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil,
+                           queue: .main) { [weak self] notification in
             guard let self,
                   let raw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
                   let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
             Task { @MainActor in
-                self.interrupted = type == .began
-                self.updateReception()
+                if type == .began {
+                    self.interrupted = true
+                    self.event("audio interrupted")
+                    self.updateReception()
+                    self.rescueAudio()
+                } else {
+                    // Resume whether or not iOS says "shouldResume": the silence is ours to restart.
+                    self.interrupted = false
+                    self.event("interruption ended")
+                    self.updateReception()
+                }
             }
         }
+        center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil,
+                           queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.standby.forget()
+                self.event("media reset")
+                self.updateReception()
+                if !self.standby.isPlaying { self.rescueAudio() }
+            }
+        }
+        center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil,
+                           queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.scenePhase != .active, self.standbyEnabled,
+                      !self.interrupted, !self.standby.isPlaying else { return }
+                self.event("route change")
+                self.updateReception()
+                if !self.standby.isPlaying { self.rescueAudio() }
+            }
+        }
+    }
+
+    // MARK: keeping the silence alive
+
+    /// The last thing that happened to the standby audio, sent to the server as X-Note.
+    private var lastEvent = ""
+    private var rescueTask: Task<Void, Never>?
+
+    private func event(_ what: String) {
+        lastEvent = what + " " + Self.clock.string(from: Date())
+        note(what)
+    }
+
+    /// iOS does not promise an "interruption ended". Without the silence the App is suspended within
+    /// seconds and never hears it, so the island went grey after every call or Siri. Instead: take a
+    /// short grace period and try the audio again every 3 s for about 24 s. A short cut (Siri, another
+    /// app's sound) heals by itself; a long call still drops, and comes back the next time she opens the App.
+    private func rescueAudio() {
+        guard standbyEnabled, scenePhase != .active else { return }
+        standby.holdForRescue()
+        rescueTask?.cancel()
+        rescueTask = Task { @MainActor [weak self] in
+            for attempt in 1...8 {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                guard let self, !Task.isCancelled else { return }
+                if self.standby.isPlaying { break }
+                self.interrupted = false
+                self.updateReception()
+                if self.standby.isPlaying { self.event("audio back after \(attempt * 3)s"); break }
+                self.interrupted = true
+            }
+            guard let self, !Task.isCancelled else { return }
+            if !self.standby.isPlaying { self.event("audio still blocked") }
+            self.standby.releaseRescue()
+            self.updateReception()
+        }
+    }
+
+    /// Run on every poll answer or error: if the silence stopped without telling us, start it again.
+    private func heal() {
+        guard scenePhase != .active, standbyEnabled, !interrupted, !standby.isPlaying else { return }
+        event("audio was off, restarting")
+        updateReception()
     }
 
     func scene(_ phase: ScenePhase) {
         scenePhase = phase
         note("scene \(phase)")
+        if phase == .active {
+            // Back in the App, an interruption that never "ended" is over as far as we are concerned;
+            // otherwise the flag stays stuck and standby never starts again until the App is killed.
+            rescueTask?.cancel()
+            rescueTask = nil
+            standby.releaseRescue()
+            interrupted = false
+        }
         standby.setScenePhase(phase)
         if phase == .active { Notices.shared.clearBadge() }
         updateReception()
@@ -96,7 +177,7 @@ final class AppModel: ObservableObject {
         } else {
             standby.stop()
         }
-        let canPoll = standby.state.canPoll(lease: standby.hasLease, audio: standby.isPlaying)
+        let canPoll = standby.state.canPoll(lease: standby.hasLease || standby.hasRescue, audio: standby.isPlaying)
         if interrupted { standbyStatus = "声音被系统占用，待机已暂停" }
         else if standby.isPlaying { standbyStatus = "后台待机已开启" }
         else if scenePhase == .background { standbyStatus = canPoll ? "短时后台接收中" : "后台接收已暂停" }
@@ -111,12 +192,14 @@ final class AppModel: ObservableObject {
         guard !poller.isRunning else { return }
         pollStatus = "连接中"
         poller.start(base: base, presence: { [weak self] in
-            guard let self else { return (true, false) }
-            return (self.scenePhase != .active, self.standby.isPlaying)
+            guard let self else { return (true, false, "") }
+            return (self.scenePhase != .active, self.standby.isPlaying, self.lastEvent)
         }, onAnswer: { [weak self] response in
             self?.answered(response)
+            self?.heal()
         }, onError: { [weak self] message in
             self?.pollStatus = "出错：\(message)"
+            self?.heal()
         })
     }
 

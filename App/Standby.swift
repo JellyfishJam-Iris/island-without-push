@@ -39,10 +39,28 @@ import UIKit
 final class Standby {
     private(set) var state = StandbyState()
     private var lease: UIBackgroundTaskIdentifier = .invalid
+    /// A second, separate grace period taken when the silence is cut (a call, Siri, another app's
+    /// sound): it keeps the process awake for the few seconds the App needs to try the audio again.
+    private var rescue: UIBackgroundTaskIdentifier = .invalid
     private var player: AVAudioPlayer?
     var onExpiration: (() -> Void)?
     var isPlaying: Bool { player?.isPlaying == true }
     var hasLease: Bool { lease != .invalid }
+    var hasRescue: Bool { rescue != .invalid }
+
+    func holdForRescue() {
+        guard rescue == .invalid else { return }
+        rescue = UIApplication.shared.beginBackgroundTask(withName: "Recover standby audio") { [weak self] in
+            Task { @MainActor in self?.releaseRescue() }
+        }
+    }
+
+    func releaseRescue() {
+        if rescue != .invalid { UIApplication.shared.endBackgroundTask(rescue); rescue = .invalid }
+    }
+
+    /// After a media-services reset the old player is dead even if it still looks present.
+    func forget() { player = nil }
 
     func setScenePhase(_ phase: ScenePhase) {
         let next: StandbyState.Visibility
@@ -74,6 +92,9 @@ final class Standby {
 
     func start() throws {
         guard !isPlaying else { return }
+        // A player the system paused (interruption, route change) is thrown away and built again.
+        player?.stop()
+        player = nil
         let session = AVAudioSession.sharedInstance()
         // mixWithOthers: her music keeps playing; the silence sits underneath it.
         try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
