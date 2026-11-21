@@ -29,7 +29,10 @@ final class LakeHost: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        web.frame = CGRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - keyboardOverlap))
+        // bounds + center, not frame: EdgeNav moves the web view with a transform while a swipe is on.
+        let height = max(0, bounds.height - keyboardOverlap)
+        web.bounds = CGRect(x: 0, y: 0, width: bounds.width, height: height)
+        web.center = CGPoint(x: bounds.width / 2, y: height / 2)
     }
 }
 
@@ -49,6 +52,9 @@ struct LakeView: UIViewRepresentable {
         // The lake can tell it is inside the App by this (and by window.webkit.messageHandlers.lelac).
         config.applicationNameForUserAgent = "Mobile/15E148 LeLacApp/1"
         config.userContentController.add(context.coordinator, name: "lelac")
+        // Edge swipes are native here (EdgeNav.swift); swipe.js sees this and hands them over.
+        config.userContentController.addUserScript(WKUserScript(source: "window.__nativeNav = 1;",
+                                                                injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let web = WKWebView(frame: .zero, configuration: config)
         web.navigationDelegate = context.coordinator
         web.uiDelegate = context.coordinator
@@ -64,6 +70,7 @@ struct LakeView: UIViewRepresentable {
         context.coordinator.host = host
         context.coordinator.watchKeyboard()
         context.coordinator.watchLandings()
+        context.coordinator.edges.install(on: host)
         // Launched by a tap on a notification: open the lake right there (index.html reads ?nroom= etc.).
         web.load(URLRequest(url: Coordinator.landingURL(url, Notices.shared.takeLanding())))
         return host
@@ -87,6 +94,7 @@ struct LakeView: UIViewRepresentable {
         weak var host: LakeHost?
         var home: URL
         private var offsetWatch: NSKeyValueObservation?
+        let edges = EdgeNav()
         var token: Int
         var onCommand: (String) -> Void
 
@@ -302,6 +310,9 @@ struct LakeView: UIViewRepresentable {
             switch cmd {
             case "haptic":
                 Self.haptic(body?["style"] as? String ?? "light")
+            case "nav":
+                edges.left = body?["left"] as? String ?? ""
+                edges.right = body?["right"] as? String ?? ""
             default:
                 onCommand(cmd)
             }
