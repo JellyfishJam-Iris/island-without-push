@@ -66,6 +66,11 @@ final class Notices: NSObject, UNUserNotificationCenterDelegate {
         content.body = String(item.text.prefix(200))
         content.sound = .default
         content.badge = NSNumber(value: badge)
+        var land: [String: Any] = [:]
+        if let room = item.room { land["room"] = room }
+        if let msg = item.msg { land["msg"] = msg }
+        if let page = item.page { land["page"] = page }
+        content.userInfo = land
         let request = UNNotificationRequest(identifier: "poll." + item.id, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request) { _ in }
     }
@@ -79,7 +84,29 @@ final class Notices: NSObject, UNUserNotificationCenterDelegate {
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
-        // A tap just opens the App. Route to a screen here if you have more than one.
+        // A tap lands in the lake where the message is (room, message, or a page such as the diary).
+        let info = response.notification.request.content.userInfo
+        var land: [String: Any] = [:]
+        for key in ["room", "msg", "page"] { if let value = info[key] { land[key] = value } }
+        if !land.isEmpty {
+            DispatchQueue.main.async {
+                self.pendingLanding = land
+                NotificationCenter.default.post(name: Notices.landing, object: nil)
+            }
+        }
         completionHandler()
+    }
+
+    // MARK: tap → the lake
+
+    static let landing = Notification.Name("lelac.notice.landing")
+
+    /// The last tapped notification's landing, until the lake view takes it. A tap that launches the App
+    /// arrives before the web view exists, so it waits here.
+    var pendingLanding: [String: Any]?
+
+    func takeLanding() -> [String: Any]? {
+        defer { pendingLanding = nil }
+        return pendingLanding
     }
 }

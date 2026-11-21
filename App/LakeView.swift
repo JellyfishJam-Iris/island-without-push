@@ -63,7 +63,9 @@ struct LakeView: UIViewRepresentable {
         context.coordinator.web = web
         context.coordinator.host = host
         context.coordinator.watchKeyboard()
-        web.load(URLRequest(url: url))
+        context.coordinator.watchLandings()
+        // Launched by a tap on a notification: open the lake right there (index.html reads ?nroom= etc.).
+        web.load(URLRequest(url: Coordinator.landingURL(url, Notices.shared.takeLanding())))
         return host
     }
 
@@ -97,6 +99,49 @@ struct LakeView: UIViewRepresentable {
         private func isLake(_ url: URL) -> Bool { url.host == home.host && url.port == home.port }
         /// Our other rooms on the same machine, behind another port (双弈 8448, Coread 8445 ...).
         private func isHome(_ url: URL) -> Bool { url.host == home.host }
+
+        // MARK: notification taps
+
+        private var loaded = false
+
+        static func landingURL(_ home: URL, _ land: [String: Any]?) -> URL {
+            guard let land, var parts = URLComponents(url: home, resolvingAgainstBaseURL: false) else { return home }
+            var items = parts.queryItems ?? []
+            for key in ["room", "msg", "page"] { if let value = land[key] { items.append(.init(name: "n" + key, value: "\(value)")) } }
+            parts.queryItems = items
+            return parts.url ?? home
+        }
+
+        func watchLandings() {
+            NotificationCenter.default.addObserver(self, selector: #selector(landingArrived),
+                                                   name: Notices.landing, object: nil)
+        }
+
+        /// A tap while the App is already running: hand it to the page (it closes whatever is open and
+        /// goes to that room). Before the page has finished loading it waits for didFinish.
+        @objc private func landingArrived() {
+            guard loaded else { return }
+            deliverLanding()
+        }
+
+        private func deliverLanding() {
+            guard let land = Notices.shared.takeLanding(), let web,
+                  let data = try? JSONSerialization.data(withJSONObject: land),
+                  let json = String(data: data, encoding: .utf8) else { return }
+            web.evaluateJavaScript("window.lakeOpenFromNotice && window.lakeOpenFromNotice(\(json))") { _, error in
+                if error != nil { web.load(URLRequest(url: Self.landingURL(self.home, land))) }
+            }
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            guard webView === web else { return }
+            loaded = true
+            deliverLanding()
+        }
+
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            if webView === web { loaded = false }
+        }
 
         // MARK: keyboard
 

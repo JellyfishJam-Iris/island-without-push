@@ -33,4 +33,21 @@ struct Message: Decodable, Equatable {
     let id: String
     let text: String
     let title: String?
+    /// Where a tap should land (2026/11/22): the lake's room, the message to stop at, or a page such as
+    /// "diary". Each is optional and dropped on its own if it does not decode.
+    let room: Int?
+    let msg: Int?
+    let page: String?
+
+    private enum CodingKeys: String, CodingKey { case id, text, title, room, msg, page }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        text = try values.decode(String.self, forKey: .text)
+        title = try? values.decodeIfPresent(String.self, forKey: .title)
+        room = try? values.decodeIfPresent(Int.self, forKey: .room)
+        msg = try? values.decodeIfPresent(Int.self, forKey: .msg)
+        page = try? values.decodeIfPresent(String.self, forKey: .page)
+    }
 }

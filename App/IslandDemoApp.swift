@@ -270,6 +270,11 @@ struct RootView: View {
                 showClawd = false
             })
         }
+        // A tapped notification goes to the lake: Clawd's page steps aside, the lake opens if it was not.
+        .onReceive(NotificationCenter.default.publisher(for: Notices.landing)) { _ in
+            showClawd = false
+            if model.lakeURL != nil { lakeOpen = true }
+        }
     }
 }
 
