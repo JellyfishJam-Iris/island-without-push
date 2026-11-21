@@ -81,7 +81,7 @@ struct LakeView: UIViewRepresentable {
         config.applicationNameForUserAgent = "Mobile/15E148 LeLacApp/1"
         config.userContentController.add(context.coordinator, name: "lelac")
         // Edge swipes are native here (EdgeNav.swift); swipe.js sees this and hands them over.
-        config.userContentController.addUserScript(WKUserScript(source: "window.__nativeNav = 1; window.__nativeComposer = 1;",
+        config.userContentController.addUserScript(WKUserScript(source: "window.__nativeNav = 1; window.__nativeComposer = 1; window.__nativeImage = 1;",
                                                                 injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let web = WKWebView(frame: .zero, configuration: config)
         web.navigationDelegate = context.coordinator
@@ -482,6 +482,15 @@ struct LakeView: UIViewRepresentable {
                 if let tone = body?["tone"] as? String { host?.composer?.set(tone: tone) }
             case "composer":
                 composerSaid(body ?? [:])
+            case "image":
+                let urls = (body?["urls"] as? [String] ?? []).compactMap(URL.init(string:))
+                guard !urls.isEmpty else { break }
+                host?.composer?.textView.resignFirstResponder()
+                let viewer = ImageViewer(urls: urls, index: body?["index"] as? Int ?? 0)
+                let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+                var top = scene?.windows.first(where: { $0.isKeyWindow })?.rootViewController
+                while let next = top?.presentedViewController { top = next }
+                top?.present(viewer, animated: true)
             default:
                 onCommand(cmd)
             }
